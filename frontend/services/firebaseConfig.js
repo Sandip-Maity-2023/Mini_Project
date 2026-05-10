@@ -1,8 +1,13 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-// Replace getAuth with these two for Persistence
-import { initializeAuth, getReactNativePersistence } from "firebase/auth";
+import { Platform } from "react-native";
+import {
+  browserLocalPersistence,
+  getAuth,
+  getReactNativePersistence,
+  initializeAuth,
+} from "firebase/auth";
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
@@ -17,10 +22,20 @@ const firebaseConfig = {
 // Initialize Firebase (Singleton pattern to prevent multiple app instances)
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// FIXED: Initialize Auth with Persistence to stop the "Memory Persistence" warning
-export const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
-});
+const createAuth = () => {
+  try {
+    return initializeAuth(app, {
+      persistence:
+        Platform.OS === "web"
+          ? browserLocalPersistence
+          : getReactNativePersistence(ReactNativeAsyncStorage),
+    });
+  } catch (error) {
+    return getAuth(app);
+  }
+};
+
+export const auth = createAuth();
 
 // Export Services
 export const db = getFirestore(app);
