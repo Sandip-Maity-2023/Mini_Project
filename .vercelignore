@@ -1,0 +1,17 @@
+.git
+.vercel
+
+backend
+
+node_modules
+frontend/node_modules
+
+frontend/dist
+frontend/.expo
+.expo
+
+*.log
+*.pth
+*.pth.zip
+.env
+.env.*

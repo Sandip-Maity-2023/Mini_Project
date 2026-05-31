@@ -12,5 +12,9 @@ frontend/.git-nested-backup/
 __pycache__/
 *.pyc
 *.log
+*.pth
+*.pth.zip
 .env
 .env.*
+
+.vercel

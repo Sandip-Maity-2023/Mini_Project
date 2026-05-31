@@ -21,6 +21,26 @@ import { db } from '../services/firebaseConfig';
 import { doc, updateDoc, serverTimestamp, collection, addDoc } from "firebase/firestore";
 
 const { width } = Dimensions.get('window');
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ||
+  (Platform.OS === 'web' ? 'http://127.0.0.1:5000' : 'http://10.150.132.237:5000');
+
+const appendImageToFormData = async (formData, imageUri) => {
+  const fileName = `scan-${Date.now()}.jpg`;
+
+  if (Platform.OS === 'web') {
+    const imageResponse = await fetch(imageUri);
+    const imageBlob = await imageResponse.blob();
+    formData.append('image', imageBlob, fileName);
+    return;
+  }
+
+  formData.append('image', {
+    uri: imageUri,
+    name: fileName,
+    type: 'image/jpeg',
+  });
+};
 
 // --- PROFESSIONAL MEDICAL THEME ---
 const THEME = {
@@ -151,36 +171,83 @@ export default function ResultScreen({ route, navigation }) {
   const headerAnim = useRef(new Animated.Value(-100)).current;
 
   useEffect(() => {
+    let isMounted = true;
+
     startScanAnimation();
-    const timer = setTimeout(() => {
-      const mockConfidence = 89.2; 
-      const status = mockConfidence > 50 ? "Positive" : "Negative";
-      
-      setResult({
-        condition: status === "Positive" ? "Cataract Detected" : "Normal Eye Health",
-        confidence: mockConfidence,
-        status: status,
-        severity: status === "Positive" ? "Moderate-Advanced" : "Optimal",
-        scanId: `DX${new Date().getFullYear()}${String(Math.floor(100000 + Math.random() * 900000))}`,
-        date: new Date().toLocaleDateString('en-IN', {
-          day: '2-digit', month: 'short', year: 'numeric'
-        }),
-        time: new Date().toLocaleTimeString('en-IN', {
-          hour: '2-digit', minute: '2-digit', hour12: true
-        }),
-        technician: "AI-OPHTHAL System",
-        deviceId: "RETINA-SCAN-PRO-001",
-      });
-      setLoading(false);
-      
+
+    const animateReportIn = () => {
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
         Animated.spring(slideUp, { toValue: 0, friction: 8, useNativeDriver: true }),
         Animated.spring(headerAnim, { toValue: 0, friction: 8, useNativeDriver: true }),
       ]).start();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }, 3800);
-    return () => clearTimeout(timer);
+    };
+
+    const analyzeImage = async () => {
+      try {
+        if (!image) {
+          throw new Error('No image was provided for analysis.');
+        }
+
+        const formData = new FormData();
+        await appendImageToFormData(formData, image);
+
+        const response = await fetch(`${API_BASE_URL}/predict`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        const prediction = await response.json();
+        if (!response.ok) {
+          throw new Error(prediction.error || 'Prediction request failed.');
+        }
+
+        const status = prediction.status || (prediction.condition === 'Cataract' ? 'Positive' : 'Negative');
+        const confidence = Number(prediction.confidence || 0);
+        const isPositiveResult = status === 'Positive';
+
+        if (!isMounted) return;
+
+        setResult({
+          condition: isPositiveResult ? "Cataract Detected" : "Normal Eye Health",
+          confidence,
+          status,
+          severity: prediction.severity || (isPositiveResult ? "Needs ophthalmologist review" : "Optimal"),
+          scanId: `DX${new Date().getFullYear()}${String(Math.floor(100000 + Math.random() * 900000))}`,
+          date: new Date().toLocaleDateString('en-IN', {
+            day: '2-digit', month: 'short', year: 'numeric'
+          }),
+          time: new Date().toLocaleTimeString('en-IN', {
+            hour: '2-digit', minute: '2-digit', hour12: true
+          }),
+          technician: "AI-OPHTHAL System",
+          deviceId: "SWIN-CATARACT-AI-001",
+          probabilities: prediction.probabilities,
+        });
+        setLoading(false);
+        animateReportIn();
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (error) {
+        console.error("AI Analysis Error:", error);
+        if (!isMounted) return;
+
+        setLoading(false);
+        Alert.alert(
+          "Analysis Failed",
+          `${error.message}\n\nBackend used: ${API_BASE_URL}`,
+          [{ text: "Go Back", onPress: () => navigation.goBack() }]
+        );
+      }
+    };
+
+    const timer = setTimeout(() => {
+      analyzeImage();
+    }, 1200);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
   }, []);
 
   const startScanAnimation = () => {
@@ -519,6 +586,28 @@ export default function ResultScreen({ route, navigation }) {
           </Text>
         </View>
       </View>
+    );
+  }
+
+  if (!result) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <LinearGradient
+          colors={[THEME.bgDark, '#0A1628', THEME.bgDark]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.loadingContent}>
+          <MaterialCommunityIcons name="alert-circle" size={72} color={THEME.error} />
+          <Text style={styles.loadingTitle}>ANALYSIS UNAVAILABLE</Text>
+          <Text style={styles.loadingSubtext}>
+            The backend did not return a diagnostic result.
+          </Text>
+          <TouchableOpacity style={styles.tertiaryActionBtn} onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={20} color={THEME.textSecondary} />
+            <Text style={styles.tertiaryActionText}>Return to Scan</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
